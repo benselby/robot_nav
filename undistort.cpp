@@ -30,6 +30,8 @@ int get_time_diff( struct timeval *result, struct timeval *t1, struct timeval *t
 
 int main( int argc, char** argv )
 {
+	std::cout<<"Press 's' to save the output images to \'"<<output_path<<"\'."<<std::endl;
+	
 	if ( argc < 4 ) 
     {
         printf( "Usage: %s <image_filename> <cal_input_data.txt> <number_of_lines>\n", argv[0] );
@@ -63,7 +65,6 @@ int main( int argc, char** argv )
     
 	printf("Successfully read the calibration file.\n");
 	cv::Mat src, top_img, bottom_img;
-	cv::Mat top_raw, bottom_raw; // for storing the top and bottom of the src
 	cv::Mat map_x, map_y;
 	struct timeval start_time, end_time, time_diff, calc_time, resize_time;
 	gettimeofday(&start_time, NULL);
@@ -78,7 +79,7 @@ int main( int argc, char** argv )
 	}
 
 	// specify the dimensions of the output (piecewise-scaled) stereo images
-	int HEIGHT = src.rows;
+	int HEIGHT = src.rows/2;
 	int WIDTH = src.cols;
 
 	top_img.create( HEIGHT, WIDTH, src.type() );
@@ -91,12 +92,6 @@ int main( int argc, char** argv )
 	int top_lower = y_vals[num_lines-1];
 	int bottom_upper = y_vals[num_lines];
 	int bottom_lower = y_vals[2*num_lines-1];
-	
-	// set the ROIs based on the calibration data
-	cv::Rect ROI_top( 0, top_upper, WIDTH, top_lower-top_upper );
-	top_raw = src( ROI_top );
-	cv::Rect ROI_bottom( 0, bottom_upper, WIDTH, bottom_lower-bottom_upper );
-	bottom_raw = src( ROI_bottom );
 
 	gettimeofday( &resize_time, NULL );
 
@@ -120,7 +115,7 @@ int main( int argc, char** argv )
  
 	gettimeofday( &end_time, NULL );
 	get_time_diff( &time_diff, &start_time, &end_time );
-    printf( "Time Elapsed: %ld.%06ld seconds\n", time_diff.tv_sec, time_diff.tv_usec );
+    printf( "Total Time Elapsed: %ld.%06ld seconds\n", time_diff.tv_sec, time_diff.tv_usec );
     
     get_time_diff( &time_diff, &resize_time, &end_time );
     printf( "Resize time: %ld.%06ld seconds\n", time_diff.tv_sec, time_diff.tv_usec );
@@ -129,17 +124,11 @@ int main( int argc, char** argv )
     cvNamedWindow( "Original", 1 );
     imshow( "Original", src );
     
-    cvNamedWindow( "Top Mirror", 1 );
-    imshow( "Top Mirror", top_raw );
-    
     cvNamedWindow( "Top Stereo", 1 );
     imshow( "Top Stereo", top_img );
     
     cvNamedWindow( "Bottom Stereo", 1 );
     imshow( "Bottom Stereo", bottom_img );
-    
-    cvNamedWindow( "Bottom Mirror", 1 );    
-    imshow( "Bottom Mirror", bottom_raw );
 
 	char saved = cv::waitKey(0);
 	
