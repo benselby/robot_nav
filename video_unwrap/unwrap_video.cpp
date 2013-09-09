@@ -9,6 +9,7 @@
 #include <opencv2/imgproc/imgproc.hpp>
 #include <stdio.h>
 #include <sys/time.h>
+#include <string>
 
 #define PI 3.141592654
 
@@ -92,15 +93,19 @@ int main( int argc, char** argv )
 
 	int fourcc = static_cast<int>(capture.get(CV_CAP_PROP_FOURCC));
 	double fps = 30;
-	cv::Size frame_size( RADIUS, (int) 2*PI*RADIUS );
+	cv::Size frame_size = cv::Size( RADIUS, (int)2*PI*RADIUS );
 	video_filename = "test.avi";
-	cv::VideoWriter writer( video_filename, fourcc, fps, frame_size );
+	
+	// video writer does not appear to be working, for now just output a series
+	// of images
+//	cv::VideoWriter writer( video_filename, fourcc, fps, frame_size );
+//		
+//	if ( !writer.isOpened() && save )
+//	{
+//		printf("Failed to initialize video writer, unable to save video!\n");
+//	}
 		
-	if ( !writer.isOpened() && save )
-	{
-		printf("Failed to initialize video writer, unable to save video!\n");
-	}
-		
+	int frame_num = 1;
 	while(true)
 	{	
 		if ( !capture.read(frame) )
@@ -126,11 +131,17 @@ int main( int argc, char** argv )
 		imshow("unwrapped", unwrapped_img);
 		
 		// if we are saving video, write the unwrapped image
+		
 		if (save)
 		{
-			printf("Writing frame...\n");
-			writer << unwrapped_img;
+			char buff[50];
+			sprintf( buff, "%sunwrapped_frame_%d.jpg", output_path.c_str(), frame_num );
+			printf("Name: %s\n", buff );
+			std::string out_name = buff;
+			imwrite(out_name, unwrapped_img);
+//			writer << unwrapped_img;
 		}
+		frame_num++;
 		
 		char key = cv::waitKey(30);
 		if ( key == 27 ) // if ESC is pressed, break
