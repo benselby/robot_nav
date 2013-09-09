@@ -2,6 +2,10 @@
 *  A program which unwraps video taken from the VirtualME robot for vision
 *  processing. 
 *  
+*  Currently simply saves each unwrapped, undistorted frame of video as  
+*  separate top and bottom mirror images. The undistortion requires a
+*  calibration file to be specified. 
+*
 *  Ben Selby, August 2013
 */
 
@@ -10,6 +14,7 @@
 #include <stdio.h>
 #include <sys/time.h>
 #include <string>
+#include <fstream>
 
 #define PI 3.141592654
 
@@ -37,16 +42,44 @@ int main( int argc, char** argv )
 	
 	if ( argc < 2 ) 
     {
-        printf( "Usage: %s <video_filename> [optional:-s (save video)] \n", argv[0] );
+        printf( "Usage: %s <video_filename> <calibration_data.txt> <number of lines> [optional:-save] \n", argv[0] );
         return -1;
     }
     
     // Check for the "save video flag"
-    if ( argc > 2 )
+    if ( argc > 4 )
 	{
-	  	if ( strcmp( "-s", argv[2] ) == 0 )
+	  	if ( strcmp( "-s", argv[4] ) == 0 || strcmp( "-save", argv[4] ) == 0 )
     		save = true;
     }
+    
+    // Read the pixel values of the lines from the text file and store them in
+    // the array y_vals:
+    int num_lines = atoi( argv[3] );
+    std::ifstream input_data( argv[2] );
+    std::string line;
+    int y_vals[num_lines*2];
+    
+    printf("Reading calibration data file... ");
+    if ( input_data.is_open() )
+    {
+    	int index = 0;
+    	while ( input_data.good() )
+    	{
+    		getline( input_data, line );
+    		y_vals[index] = atoi( line.c_str() );
+//    		printf("line %d: %d\n", index, y_vals[index]);
+    		index++;    		
+    	}
+    }
+    else
+    {
+    	printf( "Unable to open the file \"%s\" - exiting.\n", argv[2] ); 
+    	return -1;
+    }
+    
+    input_data.close();    
+	printf("done.\n");
     
 	struct timeval start_time, end_time, time_diff, calc_time;
 	gettimeofday(&start_time, NULL);
@@ -64,17 +97,18 @@ int main( int argc, char** argv )
 		return -1;
 	}
 	
-	cv::Mat frame, cropped_img, unwrapped_img;
+	cv::Mat frame, cropped_img, unwrapped_img, top_img, bottom_img;
 	cv::Mat map_x, map_y;
 	cv::Rect ROI( OFFSET_X, OFFSET_Y, WIDTH, HEIGHT );
 	
 	// for now, read the first frame so we can create the map... 
 	capture.read( frame );
 	unwrapped_img.create( RADIUS, (int) 2*PI*RADIUS, frame.type() );
-	
+
 	// create the maps with same size as the cropped image	
-	map_x.create( RADIUS, (int) 2*PI*RADIUS, CV_32FC1 );
-	map_y.create( RADIUS, (int) 2*PI*RADIUS, CV_32FC1 );
+	int UNWRAPPED_WIDTH = (int) 2*PI*RADIUS;
+	map_x.create( RADIUS, UNWRAPPED_WIDTH, CV_32FC1 );
+	map_y.create( RADIUS, UNWRAPPED_WIDTH, CV_32FC1 );
 	
 	// develop the map arrays for the unwarping from polar coordinates
 	// i = y coord, j = x coord	
@@ -91,10 +125,23 @@ int main( int argc, char** argv )
         }
     }    	
 
-	int fourcc = static_cast<int>(capture.get(CV_CAP_PROP_FOURCC));
-	double fps = 30;
-	cv::Size frame_size = cv::Size( RADIUS, (int)2*PI*RADIUS );
-	video_filename = "test.avi";
+	// get the top and bottom from the calibration data array:
+	int top_upper = y_vals[0];
+	int top_lower = y_vals[num_lines-1];
+	int bottom_upper = y_vals[num_lines];
+	int bottom_lower = y_vals[2*num_lines-1];
+	int OUTPUT_HEIGHT = RADIUS/2;
+	
+	top_img.create( OUTPUT_HEIGHT, UNWRAPPED_WIDTH, frame.type() );
+	bottom_img.create( OUTPUT_HEIGHT, UNWRAPPED_WIDTH, frame.type() );
+	cv::Mat section, resized_section;
+	int section_height = (int) OUTPUT_HEIGHT/(num_lines-1);
+	resized_section.create( section_height, UNWRAPPED_WIDTH, frame.type() );
+
+//	int fourcc = static_cast<int>(capture.get(CV_CAP_PROP_FOURCC));
+//	double fps = 30;
+//	cv::Size frame_size = cv::Size( RADIUS, (int)2*PI*RADIUS );
+//	video_filename = "test.avi";
 	
 	// video writer does not appear to be working, for now just output a series
 	// of images
@@ -105,7 +152,7 @@ int main( int argc, char** argv )
 //		printf("Failed to initialize video writer, unable to save video!\n");
 //	}
 		
-	int frame_num = 1;
+	int frame_num = 1; // the current frame index
 	while(true)
 	{	
 		if ( !capture.read(frame) )
@@ -126,19 +173,53 @@ int main( int argc, char** argv )
     		 cv::Scalar(0,0,0)
 		   );
 		   
+		// Perform the undistortion as specified by the input file:
+		// Patch together resized image to produce images with uniform angular resolution
+		for ( int i = 0; i<num_lines-1; i++ )
+		{
+			// for the top image...		
+			section = unwrapped_img( cv::Rect( 0, 
+												y_vals[i], 
+												UNWRAPPED_WIDTH, 
+												y_vals[i+1] - y_vals[i] ) );	
+			
+			cv::resize( section, resized_section, resized_section.size() );
+
+			resized_section.copyTo( top_img( cv::Rect( 0, 
+														i*section_height, 
+														UNWRAPPED_WIDTH, 
+														section_height ) ) );
+
+			// and the bottom
+			section = unwrapped_img( cv::Rect( 0, 
+											y_vals[i+num_lines], 
+											UNWRAPPED_WIDTH, 
+											y_vals[i+num_lines+1] - y_vals[i+num_lines] ) );
+
+			cv::resize( section, resized_section, resized_section.size() );
+
+			resized_section.copyTo( bottom_img( cv::Rect( 0, 
+															i*section_height, 
+															UNWRAPPED_WIDTH, 
+															section_height ) ) );
+		}		   
+		
 		// display the images and wait
-		imshow("cropped", cropped_img);
 		imshow("unwrapped", unwrapped_img);
+		imshow("bottom", bottom_img);
+		imshow("top", top_img);
 		
-		// if we are saving video, write the unwrapped image
-		
+		// if we are saving video, write the unwrapped image		
 		if (save)
 		{
-			char buff[50];
-			sprintf( buff, "%sunwrapped_frame_%d.jpg", output_path.c_str(), frame_num );
-			printf("Name: %s\n", buff );
+			char buff[50], buff2[50];
+			sprintf( buff, "%stop_frame_%d.jpg", output_path.c_str(), frame_num );
 			std::string out_name = buff;
-			imwrite(out_name, unwrapped_img);
+			imwrite(out_name, top_img);
+			
+			sprintf( buff2, "%sbottom_frame_%d.jpg", output_path.c_str(), frame_num );
+			out_name = buff2;
+			imwrite(out_name, bottom_img);
 //			writer << unwrapped_img;
 		}
 		frame_num++;
