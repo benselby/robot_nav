@@ -38,20 +38,32 @@ int get_time_diff( struct timeval *result, struct timeval *t1, struct timeval *t
 
 int main( int argc, char** argv )
 {
-	bool save = false;		
+	bool save = false;
+	
+	// height of the individual 'unwarped' sections
+	int section_height = 10;		
 	
 	if ( argc < 2 ) 
     {
-        printf( "Usage: %s <video_filename> <calibration_data.txt> <number of lines> [optional:-save] \n", argv[0] );
+        printf( "Usage: %s <video_filename> <calibration_data.txt> <number of lines> [optional:<section height>-save ] \n", argv[0] );
         return -1;
     }
     
-    // Check for the "save video flag"
     if ( argc > 4 )
-	{
-	  	if ( strcmp( "-s", argv[4] ) == 0 || strcmp( "-save", argv[4] ) == 0 )
-    		save = true;
+    {
+	    // Check for the "save video flag"
+    	if ( strcmp( "-s", argv[4] ) == 0 || strcmp( "-save", argv[4] ) == 0 )
+    		save = true; 
+    	else 
+    	 	section_height = atoi( argv[4] );    	
     }
+    
+    if ( argc > 5 )
+	{
+		section_height = atoi( argv[5] );
+    }
+    
+
     
     // Read the pixel values of the lines from the text file and store them in
     // the array y_vals:
@@ -106,7 +118,7 @@ int main( int argc, char** argv )
 	unwrapped_img.create( RADIUS, (int) 2*PI*RADIUS, frame.type() );
 
 	// create the maps with same size as the cropped image	
-	int UNWRAPPED_WIDTH = (int) 2*PI*RADIUS;
+	double UNWRAPPED_WIDTH = 2*PI*RADIUS;
 	map_x.create( RADIUS, UNWRAPPED_WIDTH, CV_32FC1 );
 	map_y.create( RADIUS, UNWRAPPED_WIDTH, CV_32FC1 );
 	
@@ -130,21 +142,23 @@ int main( int argc, char** argv )
 	int top_lower = y_vals[num_lines-1];
 	int bottom_upper = y_vals[num_lines];
 	int bottom_lower = y_vals[2*num_lines-1];
-	int OUTPUT_HEIGHT = RADIUS/2;
 	
+	int OUTPUT_HEIGHT = (num_lines-1)*section_height;
+	
+	// create the containers for the output stereo images
 	top_img.create( OUTPUT_HEIGHT, UNWRAPPED_WIDTH, frame.type() );
 	bottom_img.create( OUTPUT_HEIGHT, UNWRAPPED_WIDTH, frame.type() );
 	cv::Mat section, resized_section;
-	int section_height = (int) OUTPUT_HEIGHT/(num_lines-1);
+	
 	resized_section.create( section_height, UNWRAPPED_WIDTH, frame.type() );
+
+	// video writer does not appear to be working, for now just output a series
+	// of images
 
 //	int fourcc = static_cast<int>(capture.get(CV_CAP_PROP_FOURCC));
 //	double fps = 30;
 //	cv::Size frame_size = cv::Size( RADIUS, (int)2*PI*RADIUS );
 //	video_filename = "test.avi";
-	
-	// video writer does not appear to be working, for now just output a series
-	// of images
 //	cv::VideoWriter writer( video_filename, fourcc, fps, frame_size );
 //		
 //	if ( !writer.isOpened() && save )
@@ -199,9 +213,9 @@ int main( int argc, char** argv )
 			cv::resize( section, resized_section, resized_section.size() );
 
 			resized_section.copyTo( bottom_img( cv::Rect( 0, 
-															i*section_height, 
-															UNWRAPPED_WIDTH, 
-															section_height ) ) );
+														i*section_height, 
+														UNWRAPPED_WIDTH, 
+														section_height ) ) );
 		}		   
 		
 		// display the images and wait
@@ -225,11 +239,15 @@ int main( int argc, char** argv )
 		frame_num++;
 		
 		char key = cv::waitKey(30);
-		if ( key == 27 ) // if ESC is pressed, break
-			break;		
-	}
-
-
+		
+		// if ESC is pressed, break
+		if ( key == 27 ) 
+		{			
+			break;
+		} 			
+	}	
+	
+	
 	cv::waitKey(0);
 	return 0;
 }

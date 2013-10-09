@@ -79,7 +79,8 @@ int main( int argc, char** argv )
 	}
 
 	// specify the dimensions of the output (piecewise-scaled) stereo images
-	int HEIGHT = src.rows/2;
+	int output_height = 10; // the height (in pixels) of the individual unwarped sections
+	int HEIGHT = (num_lines-1)*output_height;
 	int WIDTH = src.cols;
 
 	top_img.create( HEIGHT, WIDTH, src.type() );
@@ -96,7 +97,6 @@ int main( int argc, char** argv )
 	gettimeofday( &resize_time, NULL );
 
 	cv::Mat section, resized_section;
-	int output_height = (int) HEIGHT/(num_lines-1);
 	resized_section.create( output_height, WIDTH, src.type() );
 	
 	// patch together resized image to produce images with uniform angular resolution
@@ -142,10 +142,10 @@ int main( int argc, char** argv )
 		bottom_name = "bottom_" + img_name; 
 		std::string out_path = output_path + top_name;
 		imwrite(out_path, top_img);
+		std::cout<<"Saved top image to: "<<out_path<<std::endl;
 		out_path = output_path + bottom_name;
-		imwrite(out_path, bottom_img);	
-		std::cout<<"Saved top image to: "<<out_path<<std::endl;
-		std::cout<<"Saved top image to: "<<out_path<<std::endl;
+		imwrite(out_path, bottom_img);			
+		std::cout<<"Saved bottom image to: "<<out_path<<std::endl;
 	}
 	return 0;
 }
