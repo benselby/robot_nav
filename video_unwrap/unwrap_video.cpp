@@ -6,6 +6,9 @@
 *  separate top and bottom mirror images. The undistortion requires a
 *  calibration file to be specified. 
 *
+*  Supports the inclusion of a .csv file containing the coordinates of the
+*  centre of the mirror for stabilized unwrapped images.
+*
 *  Ben Selby, August 2013
 */
 
@@ -15,17 +18,28 @@
 #include <sys/time.h>
 #include <string>
 #include <fstream>
+#include <iostream>
 
 #define PI 3.141592654
 
 // define the image parameters for cropping the mirror - should be a square
 const int OFFSET_X = 96;
 const int OFFSET_Y = 8;
-const int WIDTH = 465;
+//const int WIDTH = 465; // old width... ugh
+const int WIDTH = 452;
 const int HEIGHT = WIDTH;
 const int RADIUS = WIDTH/2;
+const double UNWRAPPED_WIDTH = 2*PI*RADIUS;
 
 const std::string output_path = "output/";
+
+//void update_maps( cv::Mat *x, cv::Mat *y, int frame_num, double[][] centre_coords);
+
+int print_help()
+{
+    printf( "Usage: ./unwrap_video <video_filename> <calibration_data.txt> <number of lines> [optional: -height <section height> -save -centre <file.csv> ] \n");
+    return -1;
+}
 
 int get_time_diff( struct timeval *result, struct timeval *t1, struct timeval *t2 )
 {
@@ -39,43 +53,58 @@ int get_time_diff( struct timeval *result, struct timeval *t1, struct timeval *t
 int main( int argc, char** argv )
 {
 	bool save = false;
+	bool variable_centre = false;
+	int centre_arg_num;	
 	
 	// height of the individual 'unwarped' sections
 	int section_height = 10;		
 	
 	if ( argc < 2 ) 
     {
-        printf( "Usage: %s <video_filename> <calibration_data.txt> <number of lines> [optional:<section height>-save ] \n", argv[0] );
-        return -1;
+		return print_help();
     }
     
     if ( argc > 4 )
     {
-	    // Check for the "save video flag"
-    	if ( strcmp( "-s", argv[4] ) == 0 || strcmp( "-save", argv[4] ) == 0 )
-    		save = true; 
-    	else 
-    	 	section_height = atoi( argv[4] );    	
+    	for (int i = 4; i < argc; i++ )
+    	{
+    		if ( strcmp( "-s", argv[i] ) == 0 || strcmp( "-save", argv[i] ) == 0 )
+    			save = true; 
+    		else if ( strcmp( "-h", argv[i] ) == 0 || strcmp( "-height", argv[i] ) == 0 )
+    		{
+    			section_height = atoi( argv[i+1] );
+	    		i++;
+    		}
+    		else if ( strcmp( "-c", argv[i] ) == 0 || strcmp( "-centre", argv[i] ) == 0 )
+    		{
+    			centre_arg_num = i+1;
+    			variable_centre = true;
+    			std::cout<<"Stabilization file found."<<std::endl;
+    			i++;
+    		}    		
+			else 
+			{
+				std::cout<<"Invalid option \""<<argv[i]<<"\" specified, exiting."<<std::endl;
+				return print_help();
+			}
+    	}    
     }
-    
-    if ( argc > 5 )
-	{
-		section_height = atoi( argv[5] );
-    }
-    
 
-    
     // Read the pixel values of the lines from the text file and store them in
     // the array y_vals:
     int num_lines = atoi( argv[3] );
     std::ifstream input_data( argv[2] );
     std::string line;
     int y_vals[num_lines*2];
+    int index; 
+    float centre_coords[20000][2]; // for now, just hard-code the number of frames
+    float x_coord, y_coord;
+    
     
     printf("Reading calibration data file... ");
     if ( input_data.is_open() )
     {
-    	int index = 0;
+    	index = 0;
     	while ( input_data.good() )
     	{
     		getline( input_data, line );
@@ -92,6 +121,32 @@ int main( int argc, char** argv )
     
     input_data.close();    
 	printf("done.\n");
+	
+	// if a centre-csv file was specified read it now:
+	if ( variable_centre )
+	{
+		std::ifstream centre_data( argv[centre_arg_num] );
+		if ( centre_data.is_open() )
+		{
+			index = 0;
+			while( centre_data.good())
+			{
+				getline(centre_data, line);
+				int found = line.find(",");
+				x_coord = atof( line.substr( 0, found ).c_str() );
+				y_coord = atof( line.substr( found+1, line.length() ).c_str() );
+				centre_coords[index][0] = x_coord;
+				centre_coords[index][1] = y_coord;
+				index++;
+//				printf("%f, %f\n", x_coord, y_coord);
+			}
+		}
+		else 
+		{
+			printf( "Unable to open the centre data file - please specify a valid .csv.\n" ); 
+			return -1;
+		}
+	}	
     
 	struct timeval start_time, end_time, time_diff, calc_time;
 	gettimeofday(&start_time, NULL);
@@ -118,38 +173,37 @@ int main( int argc, char** argv )
 	unwrapped_img.create( RADIUS, (int) 2*PI*RADIUS, frame.type() );
 
 	// create the maps with same size as the cropped image	
-	double UNWRAPPED_WIDTH = 2*PI*RADIUS;
 	map_x.create( RADIUS, UNWRAPPED_WIDTH, CV_32FC1 );
 	map_y.create( RADIUS, UNWRAPPED_WIDTH, CV_32FC1 );
-	
+
 	// develop the map arrays for the unwarping from polar coordinates
 	// i = y coord, j = x coord	
 	int rows = unwrapped_img.rows;
 	int cols = unwrapped_img.cols;
-	
-    for ( int i = 0; i < rows; i++ )
-    {
-        for ( int j = 0; j < cols; j++ )
-        {
-        	double theta = (double) j / RADIUS;// - (3*PI/2); // discretization in radians
-        	map_x.at<float>(rows-i,j) = RADIUS + i*sin(theta);
-        	map_y.at<float>(rows-i,j) = RADIUS + i*cos(theta);
-        }
-    }    	
+
+	for ( int i = 0; i < rows; i++ )
+	{
+	    for ( int j = 0; j < cols; j++ )
+	    {
+	    	double theta = (double) j / RADIUS;// - (3*PI/2); // discretization in radians
+	    	map_x.at<float>(rows-i,j) = RADIUS + i*sin(theta);
+	    	map_y.at<float>(rows-i,j) = RADIUS + i*cos(theta);
+	    }
+	}	
 
 	// get the top and bottom from the calibration data array:
 	int top_upper = y_vals[0];
 	int top_lower = y_vals[num_lines-1];
 	int bottom_upper = y_vals[num_lines];
 	int bottom_lower = y_vals[2*num_lines-1];
-	
+
 	int OUTPUT_HEIGHT = (num_lines-1)*section_height;
-	
+
 	// create the containers for the output stereo images
 	top_img.create( OUTPUT_HEIGHT, UNWRAPPED_WIDTH, frame.type() );
 	bottom_img.create( OUTPUT_HEIGHT, UNWRAPPED_WIDTH, frame.type() );
 	cv::Mat section, resized_section;
-	
+
 	resized_section.create( section_height, UNWRAPPED_WIDTH, frame.type() );
 
 	// video writer does not appear to be working, for now just output a series
@@ -174,10 +228,21 @@ int main( int argc, char** argv )
 			printf("Failed to read next frame, exiting.\n");
 			break;
 		}
-		
-		// select the region of interest in the frame
-		cropped_img = frame( ROI );
-				
+
+		// update the ROI with the variable centre for stabilization
+		if (variable_centre)
+		{
+			float x_centre = centre_coords[frame_num][0];
+			float y_centre = centre_coords[frame_num][1];
+			std::cout<<x_centre - RADIUS<<" "<<y_centre - RADIUS<<" "<<WIDTH<<" "<<HEIGHT<<std::endl;
+			cv::Rect tmp(x_centre - RADIUS, y_centre - RADIUS, WIDTH, HEIGHT);
+			ROI = tmp;
+			
+		}
+		std::cout<<ROI.x<<" "<<ROI.y<<" "<<ROI.width<<" "<<ROI.height<<std::endl;
+		// select the region of interest in the frame		
+		cropped_img = frame( ROI );		
+			
 		// Remap the image to unwrap it
 	    cv::remap( cropped_img, unwrapped_img, 
     		 map_x,
@@ -219,9 +284,11 @@ int main( int argc, char** argv )
 		}		   
 		
 		// display the images and wait
-		imshow("unwrapped", unwrapped_img);
+//		imshow("unwrapped", unwrapped_img);
 		imshow("bottom", bottom_img);
 		imshow("top", top_img);
+//		imshow("cropped", cropped_img);
+//		imshow("raw", frame);
 		
 		// if we are saving video, write the unwrapped image		
 		if (save)
@@ -246,7 +313,6 @@ int main( int argc, char** argv )
 			break;
 		} 			
 	}	
-	
 	
 	cv::waitKey(0);
 	return 0;

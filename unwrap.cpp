@@ -39,11 +39,26 @@ int get_time_diff( struct timeval *result, struct timeval *t1, struct timeval *t
 
 int main( int argc, char** argv )
 {
-	if ( argc != 2 ) 
+	int CENTRE_X, CENTRE_Y;
+
+	if ( argc < 2 ) 
     {
-        printf( "Usage: %s <image_filename> \n", argv[0] );
+        printf( "Usage: %s <image_filename> [centre_x centre_y]\n", argv[0] );
         return -1;
     }
+	
+	if ( argc == 4 )
+	{
+		CENTRE_X = atoi( argv[2] ) - OFFSET_X;
+		CENTRE_Y = atoi( argv[3] ) - OFFSET_Y;
+		std::cout << "Using specified point [" << CENTRE_X <<", " << 
+		CENTRE_Y << "] as centre of image" << std::endl;
+	}
+	else
+	{
+		CENTRE_X = RADIUS;
+		CENTRE_Y = RADIUS;		
+	}
 	
 	cv::Mat src, cropped_img, unwrapped_img;
 	cv::Mat map_x, map_y;
@@ -81,8 +96,8 @@ int main( int argc, char** argv )
         for ( int j = 0; j < cols; j++ )
         {
         	double theta = (double) j / RADIUS;// - (3*PI/2); // discretization in radians
-        	map_x.at<float>(rows-i,j) = RADIUS + i*sin(theta);
-        	map_y.at<float>(rows-i,j) = RADIUS + i*cos(theta);
+        	map_x.at<float>(rows-i,j) = CENTRE_X + i*sin(theta);
+        	map_y.at<float>(rows-i,j) = CENTRE_Y + i*cos(theta);
         }
     }
 	
